@@ -13,6 +13,8 @@ import {
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ChatService } from "../../services/chat.service";
+import { SettingsService } from "../../services/settings.service";
+import { ApiService } from "../../services/api.service";
 import { ChatAttachment } from "../../core/models";
 
 export interface SendPayload {
@@ -233,7 +235,7 @@ function isLikelyText(name: string): boolean {
             type="button"
             class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-base text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             (click)="picker.click()"
-            title="Attach files"
+            title="Attach file contents to this message"
             [disabled]="chat.streaming()"
           >
             📎
@@ -245,6 +247,50 @@ function isLikelyText(name: string): boolean {
             class="hidden"
             (change)="onPick($event)"
           />
+
+          @if (projectPath()) {
+            <div
+              class="inline-flex h-10 items-center gap-1 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 px-2 text-xs font-medium text-indigo-700 dark:text-indigo-300"
+              [title]="'Project folder: ' + projectPath()"
+            >
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 hover:underline"
+                (click)="pickProjectFolder('folder')"
+                [disabled]="pickingFolder() || chat.streaming()"
+              >
+                📁 {{ projectLabel() }}
+              </button>
+              <button
+                type="button"
+                class="ml-1 rounded-md px-1 text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-800/40"
+                (click)="clearProjectFolder()"
+                title="Clear project folder"
+                [disabled]="chat.streaming()"
+              >
+                ✕
+              </button>
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="inline-flex h-10 items-center justify-center gap-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+              (click)="pickProjectFolder('folder')"
+              [disabled]="pickingFolder() || chat.streaming()"
+              title="Pick a project folder — agent will modify files in it"
+            >
+              📁 {{ pickingFolder() ? "Opening…" : "Folder" }}
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 px-3 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+              (click)="pickProjectFolder('file')"
+              [disabled]="pickingFolder() || chat.streaming()"
+              title="Pick a file — its parent folder will become the project"
+            >
+              📄 File
+            </button>
+          }
 
           <div class="ml-auto">
             @if (chat.streaming()) {
@@ -291,10 +337,23 @@ export class ChatInputComponent implements AfterViewInit {
   @Output() readonly sent = new EventEmitter<SendPayload>();
 
   protected chat = inject(ChatService);
+  private settings = inject(SettingsService);
+  private api = inject(ApiService);
   protected value = "";
   protected attachments = signal<ChatAttachment[]>([]);
   protected dragOver = signal(false);
   protected error = signal<string | null>(null);
+  protected pickingFolder = signal(false);
+
+  protected projectPath = computed(
+    () => this.settings.settings().outputPath || "",
+  );
+  protected projectLabel = computed(() => {
+    const p = this.projectPath();
+    if (!p) return "";
+    const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts[parts.length - 1] || p;
+  });
 
   protected canSend = computed(
     () =>
@@ -346,6 +405,59 @@ export class ChatInputComponent implements AfterViewInit {
 
   protected toggleContinuation(): void {
     this.chat.toggleContinuationMode();
+  }
+
+  protected async pickProjectFolder(
+    kind: "folder" | "file" = "folder",
+  ): Promise<void> {
+    if (this.pickingFolder()) return;
+    this.pickingFolder.set(true);
+    this.error.set(null);
+    try {
+      const res = await new Promise<{
+        path?: string;
+        isDir?: boolean;
+        is_dir?: boolean;
+        cancelled?: boolean;
+      }>((resolve, reject) => {
+        this.api
+          .browse({
+            kind,
+            initialDir: this.projectPath() || undefined,
+            title:
+              kind === "folder"
+                ? "Select project folder to modify"
+                : "Select a file (its folder will be used)",
+          })
+          .subscribe({ next: resolve, error: reject });
+      });
+      if (res.cancelled || !res.path) return;
+      let folder = res.path;
+      const isDir = res.isDir ?? res.is_dir ?? kind === "folder";
+      if (!isDir) {
+        const norm = folder.replace(/\\/g, "/");
+        const i = norm.lastIndexOf("/");
+        folder = i > 0 ? folder.substring(0, i) : folder;
+      }
+      this.settings.update({ outputPath: folder });
+      // Auto-enable agent mode + continuation when pointing at an existing folder.
+      if (!this.chat.agentMode()) this.chat.setAgentMode(true);
+      this.chat.setContinuationMode(true);
+    } catch (e: unknown) {
+      const msg =
+        (e as { error?: { detail?: string }; message?: string })?.error
+          ?.detail ||
+        (e as { message?: string })?.message ||
+        "Folder picker failed";
+      this.error.set(msg);
+    } finally {
+      this.pickingFolder.set(false);
+    }
+  }
+
+  protected clearProjectFolder(): void {
+    this.settings.update({ outputPath: "" });
+    this.chat.setContinuationMode(false);
   }
 
   protected formatSize(n: number): string {

@@ -29,4 +29,28 @@ export class ApiService {
   health(): Observable<{ ok: boolean }> {
     return this.http.get<{ ok: boolean }>(`${this.base}/healthz`);
   }
+
+  browse(opts: {
+    kind: "folder" | "file";
+    title?: string;
+    initialDir?: string;
+  }): Observable<{
+    path?: string;
+    name?: string;
+    isDir?: boolean;
+    is_dir?: boolean;
+    cancelled?: boolean;
+  }> {
+    return this.http.post<{
+      path?: string;
+      name?: string;
+      isDir?: boolean;
+      is_dir?: boolean;
+      cancelled?: boolean;
+    }>(`${this.base}/api/browse`, {
+      kind: opts.kind,
+      title: opts.title,
+      initialDir: opts.initialDir,
+    });
+  }
 }

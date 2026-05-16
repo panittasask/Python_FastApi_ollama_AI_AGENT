@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.core.config import get_settings
 from app.core.logging_config import logger, setup_logging
-from app.routers import analyze, chat, generate, status, test_fix
+from app.routers import analyze, browse, chat, generate, status, test_fix
 
 
 @asynccontextmanager
@@ -45,6 +45,7 @@ app.include_router(test_fix.router)
 app.include_router(status.router)
 app.include_router(chat.router)
 app.include_router(analyze.router)
+app.include_router(browse.router)
 
 
 @app.get("/")
