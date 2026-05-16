@@ -35,6 +35,21 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip()).strip("_") or "project"
 
 
+def _emit(job: Optional[Job], name: str, model: str, status: str, msg: str = "") -> None:
+    """Forward a structured agent-activity event to the job, if supported."""
+    if not job:
+        return
+    fn = getattr(job, "agent_event", None)
+    if callable(fn):
+        try:
+            fn(name, model, status, msg)
+            return
+        except Exception:  # pragma: no cover
+            pass
+    # Fallback: plain log line.
+    job.log(f"[agent:{name} model:{model}] {status} {msg}".strip())
+
+
 class Orchestrator:
     def __init__(self, config: Optional[ModelConfig] = None) -> None:
         self.config = config
@@ -58,15 +73,16 @@ class Orchestrator:
             refiner = PromptRefinerAgent(client, self.config)
             coder = CodeGenerationAgent(client, self.config)
 
-            if job:
-                job.log("refining prompt")
+            _emit(job, "refiner", refiner.params.model, "start", "refining prompt")
             refined = await refiner.refine(prompt)
+            _emit(job, "refiner", refiner.params.model, "end", "prompt refined")
 
-            if job:
-                job.log("generating code")
+            _emit(job, "coder", coder.params.model, "start", "generating code")
             fake_task = PlanTask(id="T01", title="Generate requested code", description=refined)
             fake_plan = ProjectPlan(project_name=name, description=refined)
             result = await coder.generate_file(fake_task, fake_plan, existing_files=[])
+            _emit(job, "coder", coder.params.model, "end",
+                  f"produced {len(result.files)} file(s)")
 
             written: list[str] = []
             for f in result.files:
@@ -105,17 +121,16 @@ class Orchestrator:
             fixer = FixAgent(client, self.config)
 
             # --- 1. Refine ---
-            if job:
-                job.log("refining prompt")
+            _emit(job, "refiner", refiner.params.model, "start", "refining prompt")
             refined = await refiner.refine(prompt)
+            _emit(job, "refiner", refiner.params.model, "end", "prompt refined")
 
             # --- 2. Plan ---
-            if job:
-                job.log("planning project")
+            _emit(job, "planner", planner.params.model, "start", "planning project")
             plan = await planner.plan(refined, name)
             await pm.save(plan)
-            if job:
-                job.log(f"plan ready: {len(plan.tasks)} tasks")
+            _emit(job, "planner", planner.params.model, "end",
+                  f"plan ready: {len(plan.tasks)} tasks")
 
             # --- 3. Iterative generation ---
             loops = 0
@@ -127,8 +142,8 @@ class Orchestrator:
                 task = pending
                 task.status = TaskStatus.IN_PROGRESS
                 await pm.save(plan)
-                if job:
-                    job.log(f"[{task.id}] {task.title}")
+                _emit(job, "coder", coder.params.model, "start",
+                      f"[{task.id}] {task.title}")
                 try:
                     res = await coder.generate_file(
                         task=task,
@@ -141,12 +156,14 @@ class Orchestrator:
                         await fm.write_file(f.path, f.content)
                     task.status = TaskStatus.COMPLETED
                     task.notes = f"generated {len(res.files)} file(s)"
+                    _emit(job, "coder", coder.params.model, "end",
+                          f"[{task.id}] wrote {len(res.files)} file(s)")
                 except Exception as e:
                     logger.exception(f"Task {task.id} failed")
                     task.status = TaskStatus.FAILED
                     task.notes = f"error: {e}"
-                    if job:
-                        job.log(f"[{task.id}] FAILED: {e}")
+                    _emit(job, "coder", coder.params.model, "error",
+                          f"[{task.id}] {e}")
                 await pm.save(plan)
 
             # --- 4. Test + Fix loop ---
@@ -193,7 +210,11 @@ class Orchestrator:
             if job:
                 job.log(f"asking fixer with {len(files_ctx)} file(s)")
             try:
+                _emit(job, "fixer", fixer.params.model, "start",
+                      f"iter {i}: rc={last.return_code}")
                 result = await fixer.fix(error_blob, files_ctx)
+                _emit(job, "fixer", fixer.params.model, "end",
+                      f"iter {i}: {len(result.files)} file(s)")
             except Exception as e:
                 logger.exception("fixer crashed")
                 if job:

@@ -163,6 +163,44 @@ function isLikelyText(name: string): boolean {
 
         <button
           type="button"
+          class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
+          [ngClass]="
+            chat.webSearchMode()
+              ? 'border-emerald-500 text-emerald-700 bg-emerald-50 dark:bg-emerald-600/15 dark:text-emerald-300'
+              : 'border-slate-200 dark:border-slate-700 text-slate-500'
+          "
+          (click)="toggleWebSearch()"
+          [title]="
+            chat.webSearchMode()
+              ? 'Web search ON — grounds answers with live results'
+              : 'Web search OFF'
+          "
+        >
+          🌐 Web
+        </button>
+
+        @if (chat.agentMode()) {
+          <button
+            type="button"
+            class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
+            [ngClass]="
+              chat.perAgentModelsMode()
+                ? 'border-violet-500 text-violet-700 bg-violet-50 dark:bg-violet-600/15 dark:text-violet-300'
+                : 'border-slate-200 dark:border-slate-700 text-slate-500'
+            "
+            (click)="togglePerAgent()"
+            [title]="
+              chat.perAgentModelsMode()
+                ? 'Per-agent models ON — each role uses its configured model'
+                : 'Per-agent models OFF — all roles use the selected model'
+            "
+          >
+            🧩 Per-agent
+          </button>
+        }
+
+        <button
+          type="button"
           class="rounded-xl border border-slate-200 dark:border-slate-700 px-2 py-2 text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
           (click)="picker.click()"
           title="Attach files"
@@ -277,6 +315,12 @@ export class ChatInputComponent implements AfterViewInit {
   }
   protected toggleAgent(): void {
     this.chat.toggleAgentMode();
+  }
+  protected toggleWebSearch(): void {
+    this.chat.toggleWebSearchMode();
+  }
+  protected togglePerAgent(): void {
+    this.chat.togglePerAgentModelsMode();
   }
 
   protected formatSize(n: number): string {

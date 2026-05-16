@@ -48,8 +48,53 @@ import { ChatMessage } from "../../core/models";
               }
               <p class="whitespace-pre-wrap leading-relaxed">{{ m.content }}</p>
             } @else {
+              @if (m.agents && m.agents.length) {
+                <div class="mb-2 flex flex-wrap gap-1.5">
+                  @for (a of m.agents; track a.name + a.model) {
+                    <span
+                      class="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium"
+                      [ngClass]="agentBadgeClass(a.status)"
+                      [title]="(a.message || '') + ' (' + a.status + ')'"
+                    >
+                      <span>{{ agentIcon(a.name) }}</span>
+                      <span class="font-semibold">{{ a.name }}</span>
+                      <span class="opacity-70">· {{ a.model || "?" }}</span>
+                      <span class="opacity-70">· {{ a.status }}</span>
+                    </span>
+                  }
+                </div>
+              }
               @if (m.content) {
                 <app-markdown [source]="m.content" />
+              }
+              @if (m.sources && m.sources.length) {
+                <div
+                  class="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 p-2 text-[12px]"
+                >
+                  <div
+                    class="mb-1 font-semibold text-slate-600 dark:text-slate-300"
+                  >
+                    🌐 Web sources
+                  </div>
+                  <ol class="list-decimal pl-5 space-y-1">
+                    @for (s of m.sources; track s.url) {
+                      <li>
+                        <a
+                          [href]="s.url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="text-brand-600 hover:underline"
+                          >{{ s.title || s.url }}</a
+                        >
+                        @if (s.snippet) {
+                          <div class="text-slate-500 dark:text-slate-400">
+                            {{ s.snippet }}
+                          </div>
+                        }
+                      </li>
+                    }
+                  </ol>
+                </div>
               }
               @if (m.streaming) {
                 <div class="mt-1 inline-flex items-center gap-1 text-slate-400">
@@ -108,5 +153,28 @@ export class MessageComponent {
     } catch {
       return "";
     }
+  }
+
+  protected agentBadgeClass(status: string): string {
+    switch (status) {
+      case "end":
+      case "done":
+        return "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
+      case "error":
+        return "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-300";
+      default:
+        return "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300 animate-pulse-soft";
+    }
+  }
+
+  protected agentIcon(name: string): string {
+    const n = (name || "").toLowerCase();
+    if (n.includes("plan")) return "🧠";
+    if (n.includes("refin")) return "✨";
+    if (n.includes("cod")) return "💻";
+    if (n.includes("fix")) return "🛠️";
+    if (n.includes("test")) return "🧪";
+    if (n.includes("chat")) return "💬";
+    return "🤖";
   }
 }

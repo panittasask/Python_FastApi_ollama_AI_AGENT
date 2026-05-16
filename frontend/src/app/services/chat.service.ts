@@ -1,9 +1,11 @@
 import { Injectable, computed, effect, inject, signal } from "@angular/core";
 import {
+  AgentActivity,
   ChatAttachment,
   Conversation,
   ChatMessage,
   ChatStreamEvent,
+  WebSearchResult,
 } from "../core/models";
 import { StreamingService } from "./streaming.service";
 import { SettingsService } from "./settings.service";
@@ -27,6 +29,12 @@ export class ChatService {
   private readonly _activeId = signal<string | null>(null);
   private readonly _streaming = signal(false);
   private readonly _agentMode = signal<boolean>(this.loadAgentMode());
+  private readonly _webSearchMode = signal<boolean>(
+    this.loadBool("agent_ui.webSearch"),
+  );
+  private readonly _perAgentModelsMode = signal<boolean>(
+    this.loadBool("agent_ui.perAgentModels"),
+  );
   private _abort: AbortController | null = null;
 
   readonly conversations = computed(() =>
@@ -40,6 +48,8 @@ export class ChatService {
   });
   readonly streaming = computed(() => this._streaming());
   readonly agentMode = computed(() => this._agentMode());
+  readonly webSearchMode = computed(() => this._webSearchMode());
+  readonly perAgentModelsMode = computed(() => this._perAgentModelsMode());
 
   setAgentMode(on: boolean): void {
     this._agentMode.set(on);
@@ -55,6 +65,38 @@ export class ChatService {
   private loadAgentMode(): boolean {
     try {
       return localStorage.getItem("agent_ui.agentMode") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  setWebSearchMode(on: boolean): void {
+    this._webSearchMode.set(on);
+    try {
+      localStorage.setItem("agent_ui.webSearch", on ? "1" : "0");
+    } catch {
+      /* noop */
+    }
+  }
+  toggleWebSearchMode(): void {
+    this.setWebSearchMode(!this._webSearchMode());
+  }
+
+  setPerAgentModelsMode(on: boolean): void {
+    this._perAgentModelsMode.set(on);
+    try {
+      localStorage.setItem("agent_ui.perAgentModels", on ? "1" : "0");
+    } catch {
+      /* noop */
+    }
+  }
+  togglePerAgentModelsMode(): void {
+    this.setPerAgentModelsMode(!this._perAgentModelsMode());
+  }
+
+  private loadBool(key: string): boolean {
+    try {
+      return localStorage.getItem(key) === "1";
     } catch {
       return false;
     }
@@ -237,6 +279,8 @@ export class ChatService {
       maxTokens: settings.maxTokens,
       mode: this._agentMode() ? "agent" : "auto",
       outputPath: settings.outputPath || undefined,
+      webSearch: this._webSearchMode(),
+      perAgentModels: this._perAgentModelsMode(),
       signal: this._abort.signal,
       onEvent: (ev: ChatStreamEvent) =>
         this.handleEvent(convId, assistantMsg.id, ev),
@@ -258,6 +302,35 @@ export class ChatService {
       case "chunk":
         if (ev.content) this.appendChunk(convId, msgId, ev.content);
         return;
+      case "agent": {
+        const act: AgentActivity = {
+          name: ev.name || "agent",
+          model: ev.model || "",
+          status: (ev.status as AgentActivity["status"]) || "start",
+          message: ev.message,
+          updatedAt: Date.now(),
+        };
+        this.updateConv(convId, (c) => ({
+          ...c,
+          messages: c.messages.map((m) => {
+            if (m.id !== msgId) return m;
+            const list = [...(m.agents || [])];
+            const idx = list.findIndex(
+              (a) => a.name === act.name && a.model === act.model,
+            );
+            if (idx >= 0) list[idx] = act;
+            else list.push(act);
+            return { ...m, agents: list };
+          }),
+          updatedAt: Date.now(),
+        }));
+        return;
+      }
+      case "web_search": {
+        const results: WebSearchResult[] = ev.results || [];
+        this.patchMessage(convId, msgId, { sources: results });
+        return;
+      }
       case "done":
         this.patchMessage(convId, msgId, { streaming: false });
         return;

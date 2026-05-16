@@ -17,6 +17,9 @@ export interface StreamChatOptions {
   projectName?: string;
   outputPath?: string;
   forceProject?: boolean;
+  webSearch?: boolean;
+  webSearchQuery?: string;
+  perAgentModels?: boolean;
   signal?: AbortSignal;
   onEvent: (ev: ChatStreamEvent) => void;
 }
@@ -53,6 +56,9 @@ export class StreamingService {
       project_name: opts.projectName,
       output_path: opts.outputPath,
       force_project: opts.forceProject,
+      web_search: !!opts.webSearch,
+      web_search_query: opts.webSearchQuery,
+      per_agent_models: !!opts.perAgentModels,
       stream: true,
     };
 

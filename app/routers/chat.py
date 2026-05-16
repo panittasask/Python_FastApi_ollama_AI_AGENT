@@ -25,6 +25,7 @@ from app.models.schemas import ModelConfig
 from app.services.job_registry import Job
 from app.services.ollama_client import OllamaClient
 from app.services.orchestrator import Orchestrator
+from app.services.web_search import format_results_block, search as web_search_async
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -71,6 +72,13 @@ class ChatRequest(BaseModel):
     auto_test: Optional[bool] = Field(default=None, alias="autoTest")
     max_loops: Optional[int] = Field(default=None, alias="maxLoops")
     force_project: Optional[bool] = Field(default=None, alias="forceProject")
+    # NEW: opt-in web search
+    web_search: bool = Field(default=False, alias="webSearch")
+    web_search_query: Optional[str] = Field(default=None, alias="webSearchQuery")
+    # NEW: when true, each agent uses its own configured default model
+    # (planner_model, coder_model, fix_model, refiner_model from settings)
+    # instead of forcing them all to the user's selected model.
+    per_agent_models: bool = Field(default=False, alias="perAgentModels")
 
     class Config:
         populate_by_name = True
@@ -107,6 +115,17 @@ async def list_models() -> list[ModelInfo]:
     return [m for m in out if m.name]
 
 
+@router.get("/search")
+async def search_endpoint(q: str, n: int = 5) -> dict:
+    """Run a DuckDuckGo web search and return top-N results."""
+    q = (q or "").strip()
+    if not q:
+        raise HTTPException(400, "query (q) is required")
+    n = max(1, min(int(n or 5), 10))
+    results = await web_search_async(q, max_results=n)
+    return {"query": q, "results": [r.to_dict() for r in results]}
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest):
     """Send a chat message. If stream=True, returns SSE; else JSON."""
@@ -125,8 +144,27 @@ async def chat(req: ChatRequest):
     if mode == "agent":
         return await _agent_stream(req, model, conv_id)
 
+    # ---------- Optional web search grounding ----------
+    web_block = ""
+    web_results: list[dict] = []
+    if req.web_search:
+        q = (req.web_search_query or req.message or "").strip()
+        try:
+            results = await web_search_async(q, max_results=5)
+            web_results = [r.to_dict() for r in results]
+            web_block = format_results_block(results)
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"web search failed: {e}")
+
     # ---------- CHAT MODE: plain conversational reply ----------
     user_content = _build_user_content(req.message, req.attachments)
+    if web_block:
+        user_content = (
+            web_block
+            + "\n---\nUse the web results above as up-to-date grounding. "
+            + "Cite the source numbers like [1], [2] when relevant.\n\n"
+            + user_content
+        )
     messages: list[dict[str, str]] = []
     if req.system:
         messages.append({"role": "system", "content": req.system})
@@ -175,6 +213,10 @@ async def chat(req: ChatRequest):
     async def event_stream():
         # initial event with conversation/model metadata
         yield f"data: {json.dumps({'conversation_id': conv_id, 'model': model, 'type': 'start'})}\n\n"
+        # surface chat-mode agent activity so the UI can render a badge
+        yield f"data: {json.dumps({'type': 'agent', 'name': 'chat', 'model': model, 'status': 'start'})}\n\n"
+        if web_results:
+            yield f"data: {json.dumps({'type': 'web_search', 'query': (req.web_search_query or req.message), 'results': web_results})}\n\n"
         try:
             async with OllamaClient() as client:
                 async for chunk in client.stream_generate(
@@ -187,6 +229,7 @@ async def chat(req: ChatRequest):
                     num_predict=num_predict,
                 ):
                     yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            yield f"data: {json.dumps({'type': 'agent', 'name': 'chat', 'model': model, 'status': 'end'})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except asyncio.CancelledError:
             yield f"data: {json.dumps({'type': 'cancelled'})}\n\n"
@@ -309,7 +352,7 @@ def _derive_project_name(text: str) -> str:
 class _StreamingJob(Job):
     """A Job that also pushes log lines into an asyncio.Queue for SSE."""
 
-    def __init__(self, kind: str, meta: dict, queue: "asyncio.Queue[str]") -> None:
+    def __init__(self, kind: str, meta: dict, queue: "asyncio.Queue") -> None:
         super().__init__(kind, meta)
         self._queue = queue
 
@@ -317,6 +360,26 @@ class _StreamingJob(Job):
         super().log(msg)
         try:
             self._queue.put_nowait(msg)
+        except asyncio.QueueFull:  # pragma: no cover
+            pass
+
+    def agent_event(
+        self,
+        name: str,
+        model: str,
+        status: str,
+        message: str = "",
+    ) -> None:
+        """Push a structured 'agent activity' event onto the SSE queue."""
+        super().log(f"[agent:{name} model:{model}] {status} {message}".strip())
+        try:
+            self._queue.put_nowait({
+                "_evt": "agent",
+                "name": name,
+                "model": model,
+                "status": status,
+                "message": message,
+            })
         except asyncio.QueueFull:  # pragma: no cover
             pass
 
@@ -332,19 +395,40 @@ async def _agent_stream(req: ChatRequest, model: str, conv_id: str) -> Streaming
     # Fold any attached files into the user prompt so the agents see them.
     effective_prompt = _build_user_content(req.message, req.attachments)
 
-    # Build a ModelConfig so every agent uses the user's chosen model.
+    # Optional web search grounding for agent mode.
+    web_results: list[dict] = []
+    if req.web_search:
+        q = (req.web_search_query or req.message or "").strip()
+        try:
+            results = await web_search_async(q, max_results=5)
+            web_results = [r.to_dict() for r in results]
+            block = format_results_block(results)
+            if block:
+                effective_prompt = (
+                    block
+                    + "\n---\nUse the web results above as up-to-date grounding.\n\n"
+                    + effective_prompt
+                )
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"web search failed: {e}")
+
+    # Build a ModelConfig. By default every agent uses the user-selected model
+    # so the bubble shows a single consistent model. If `per_agent_models` is
+    # set, leave per-role fields blank so each agent picks its configured
+    # default (planner_model, coder_model, fix_model, refiner_model).
+    per_agent = bool(getattr(req, "per_agent_models", False))
     cfg = ModelConfig(
-        refiner_model=model,
-        coder_model=model,
-        planner_model=model,
-        fix_model=model,
+        refiner_model=None if per_agent else model,
+        coder_model=None if per_agent else model,
+        planner_model=None if per_agent else model,
+        fix_model=None if per_agent else model,
         temperature=req.temperature,
         top_p=req.top_p,
         num_ctx=req.num_ctx,
         max_tokens=req.max_tokens,
     )
 
-    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1000)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     job = _StreamingJob(
         kind="project" if full_project else "generate",
         meta={"prompt": req.message[:200], "project_name": project_name},
@@ -385,7 +469,12 @@ async def _agent_stream(req: ChatRequest, model: str, conv_id: str) -> Streaming
             "mode": "agent",
             "project_name": project_name,
             "full_project": full_project,
+            "per_agent_models": per_agent,
         })
+        if web_results:
+            yield _sse({"type": "web_search",
+                        "query": (req.web_search_query or req.message),
+                        "results": web_results})
         # Friendly opening line so the user sees something in the bubble immediately.
         opener = (
             f"**Agent mode** — building "
@@ -404,6 +493,21 @@ async def _agent_stream(req: ChatRequest, model: str, conv_id: str) -> Streaming
                     continue
                 if msg == "__DONE__":
                     break
+                if isinstance(msg, dict) and msg.get("_evt") == "agent":
+                    payload = {k: v for k, v in msg.items() if k != "_evt"}
+                    payload["type"] = "agent"
+                    yield _sse(payload)
+                    # Also surface as a human-readable chunk in the bubble.
+                    yield _sse({
+                        "type": "chunk",
+                        "content": (
+                            f"- **{payload.get('name','agent')}** "
+                            f"(`{payload.get('model','')}`) "
+                            f"— {payload.get('status','')} "
+                            f"{payload.get('message','')}\n"
+                        ).rstrip() + "\n",
+                    })
+                    continue
                 yield _sse({"type": "chunk", "content": f"- {msg}\n"})
 
             # Summary

@@ -20,6 +20,24 @@ export interface ChatMessage {
   model?: string;
   /** Files attached by the user to this message. */
   attachments?: ChatAttachment[];
+  /** Live agent activity captured from SSE events. */
+  agents?: AgentActivity[];
+  /** Web search results that grounded this answer. */
+  sources?: WebSearchResult[];
+}
+
+export interface AgentActivity {
+  name: string;
+  model: string;
+  status: "start" | "end" | "error" | "running" | "done";
+  message?: string;
+  updatedAt: number;
+}
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
 }
 
 export interface ChatAttachment {
@@ -65,11 +83,24 @@ export const DEFAULT_SETTINGS: ChatSettings = {
 };
 
 export interface ChatStreamEvent {
-  type: "start" | "chunk" | "done" | "error" | "cancelled";
+  type:
+    | "start"
+    | "chunk"
+    | "done"
+    | "error"
+    | "cancelled"
+    | "agent"
+    | "web_search";
   content?: string;
   conversation_id?: string;
   model?: string;
   message?: string;
+  // agent event
+  name?: string;
+  status?: "start" | "end" | "error";
+  // web_search event
+  query?: string;
+  results?: WebSearchResult[];
 }
 
 export interface PlanFile {
