@@ -1,0 +1,60 @@
+### Generate a small snippet
+POST http://localhost:8000/generate
+Content-Type: application/json
+
+{
+  "prompt": "create a python function to compute fibonacci with memoization",
+  "project_name": "fib_demo"
+}
+
+### Generate a full project (async)
+POST http://localhost:8000/generate/project
+Content-Type: application/json
+
+{
+  "prompt": "Create a FastAPI Todo app with SQLite and JWT auth, plus tests and Docker.",
+  "project_name": "todo_app",
+  "auto_test": true,
+  "config": {
+    "coder_model": "deepseek-coder:6.7b",
+    "refiner_model": "qwen2.5:7b",
+    "fix_model": "codellama:13b",
+    "temperature": 0.2
+  }
+}
+
+### Stream refined prompt
+POST http://localhost:8000/generate/stream
+Content-Type: application/json
+
+{ "prompt": "build me a CLI password manager in Go" }
+
+### Run tests on a generated project
+POST http://localhost:8000/test
+Content-Type: application/json
+
+{ "project_path": "./generated_projects/todo_app" }
+
+### Ask the fixer to repair a project given an error log
+POST http://localhost:8000/fix
+Content-Type: application/json
+
+{
+  "project_path": "./generated_projects/todo_app",
+  "error_log": "ModuleNotFoundError: No module named 'app.models'"
+}
+
+### Job status
+GET http://localhost:8000/status
+
+### Single job
+GET http://localhost:8000/status/JOB_ID_HERE
+
+### Logs
+GET http://localhost:8000/logs/JOB_ID_HERE
+
+### Plans
+GET http://localhost:8000/plans
+
+### Read a specific plan
+GET http://localhost:8000/plans/todo_app

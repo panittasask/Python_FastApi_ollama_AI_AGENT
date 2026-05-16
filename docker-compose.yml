@@ -1,0 +1,28 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: agent_api_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: agent_api
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OUTPUT_DIR: /app/generated_projects
+      LOG_LEVEL: INFO
+    volumes:
+      - ./generated_projects:/app/generated_projects
+      - ./logs:/app/logs
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama:
