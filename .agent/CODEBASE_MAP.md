@@ -29,6 +29,7 @@ agent_api/
 │   │   └── test_fix.py
 │   ├── services/
 │   │   ├── __init__.py
+│   │   ├── continuation.py
 │   │   ├── file_manager.py
 │   │   ├── job_registry.py
 │   │   ├── ollama_client.py
@@ -36,7 +37,8 @@ agent_api/
 │   │   ├── plan_manager.py
 │   │   ├── project_memory.py
 │   │   ├── project_scanner.py
-│   │   └── test_runner.py
+│   │   ├── test_runner.py
+│   │   └── web_search.py
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   └── parsing.py
@@ -112,6 +114,7 @@ agent_api/
 │   └── test_plan_manager.py
 ├── .env.example
 ├── .gitignore
+├── ddg.html
 ├── docker-compose.yml
 ├── Dockerfile
 ├── pytest.ini

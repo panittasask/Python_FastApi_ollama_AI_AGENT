@@ -1,0 +1,8 @@
+.attachment-file-button {
+  background-color: #28a745;
+  color: white;
+}
+
+.attachment-file-button:hover {
+  background-color: #218838;
+}

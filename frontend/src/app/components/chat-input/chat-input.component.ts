@@ -136,106 +136,16 @@ function isLikelyText(name: string): boolean {
       }
 
       <div
-        class="card flex items-end gap-2 p-2 shadow-soft"
+        class="card flex flex-col gap-2 p-2 shadow-soft"
         [class.ring-2]="dragOver()"
         [class.ring-brand-500]="dragOver()"
         (dragover)="onDragOver($event)"
         (dragleave)="onDragLeave($event)"
         (drop)="onDrop($event)"
       >
-        <button
-          type="button"
-          class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
-          [ngClass]="
-            chat.agentMode()
-              ? 'border-brand-500 text-brand-600 bg-brand-50 dark:bg-brand-600/15'
-              : 'border-slate-200 dark:border-slate-700 text-slate-500'
-          "
-          (click)="toggleAgent()"
-          [title]="
-            chat.agentMode()
-              ? 'Agent mode ON — writes files to disk'
-              : 'Agent mode OFF — chat only'
-          "
-        >
-          {{ chat.agentMode() ? "⚡ Agent" : "💬 Chat" }}
-        </button>
-
-        <button
-          type="button"
-          class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
-          [ngClass]="
-            chat.webSearchMode()
-              ? 'border-emerald-500 text-emerald-700 bg-emerald-50 dark:bg-emerald-600/15 dark:text-emerald-300'
-              : 'border-slate-200 dark:border-slate-700 text-slate-500'
-          "
-          (click)="toggleWebSearch()"
-          [title]="
-            chat.webSearchMode()
-              ? 'Web search ON — grounds answers with live results'
-              : 'Web search OFF'
-          "
-        >
-          🌐 Web
-        </button>
-
-        @if (chat.agentMode()) {
-          <button
-            type="button"
-            class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
-            [ngClass]="
-              chat.perAgentModelsMode()
-                ? 'border-violet-500 text-violet-700 bg-violet-50 dark:bg-violet-600/15 dark:text-violet-300'
-                : 'border-slate-200 dark:border-slate-700 text-slate-500'
-            "
-            (click)="togglePerAgent()"
-            [title]="
-              chat.perAgentModelsMode()
-                ? 'Per-agent models ON — each role uses its configured model'
-                : 'Per-agent models OFF — all roles use the selected model'
-            "
-          >
-            🧩 Per-agent
-          </button>
-          <button
-            type="button"
-            class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
-            [ngClass]="
-              chat.continuationMode()
-                ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:bg-indigo-600/15 dark:text-indigo-300'
-                : 'border-slate-200 dark:border-slate-700 text-slate-500'
-            "
-            (click)="toggleContinuation()"
-            [title]="
-              chat.continuationMode()
-                ? 'Continuation ON — modify existing files first, avoid duplicates'
-                : 'Continuation OFF — auto-detect existing project from output path'
-            "
-          >
-            🧱 Continue
-          </button>
-        }
-
-        <button
-          type="button"
-          class="rounded-xl border border-slate-200 dark:border-slate-700 px-2 py-2 text-sm text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-          (click)="picker.click()"
-          title="Attach files"
-          [disabled]="chat.streaming()"
-        >
-          📎
-        </button>
-        <input
-          #picker
-          type="file"
-          multiple
-          class="hidden"
-          (change)="onPick($event)"
-        />
-
         <textarea
           #ta
-          class="max-h-64 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2 text-[15px] leading-relaxed focus:outline-none"
+          class="max-h-64 min-h-[44px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-relaxed focus:outline-none"
           [placeholder]="placeholder()"
           [(ngModel)]="value"
           name="prompt"
@@ -245,25 +155,119 @@ function isLikelyText(name: string): boolean {
           [disabled]="chat.streaming()"
         ></textarea>
 
-        @if (chat.streaming()) {
+        <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="btn-danger !rounded-xl"
-            (click)="stop()"
-            title="Stop generating"
+            class="inline-flex h-10 items-center justify-center rounded-xl border px-3 text-xs font-semibold transition-colors"
+            [ngClass]="
+              chat.agentMode()
+                ? 'border-brand-500 text-brand-600 bg-brand-50 dark:bg-brand-600/15'
+                : 'border-slate-200 dark:border-slate-700 text-slate-500'
+            "
+            (click)="toggleAgent()"
+            [title]="
+              chat.agentMode()
+                ? 'Agent mode ON — writes files to disk'
+                : 'Agent mode OFF — chat only'
+            "
           >
-            ■ Stop
+            {{ chat.agentMode() ? "⚡ Agent" : "💬 Chat" }}
           </button>
-        } @else {
+
           <button
-            type="submit"
-            class="btn-primary !rounded-xl"
-            [disabled]="!canSend()"
-            title="Send"
+            type="button"
+            class="inline-flex h-10 items-center justify-center rounded-xl border px-3 text-xs font-semibold transition-colors"
+            [ngClass]="
+              chat.webSearchMode()
+                ? 'border-emerald-500 text-emerald-700 bg-emerald-50 dark:bg-emerald-600/15 dark:text-emerald-300'
+                : 'border-slate-200 dark:border-slate-700 text-slate-500'
+            "
+            (click)="toggleWebSearch()"
+            [title]="
+              chat.webSearchMode()
+                ? 'Web search ON — grounds answers with live results'
+                : 'Web search OFF'
+            "
           >
-            ↑ Send
+            🌐 Web
           </button>
-        }
+
+          @if (chat.agentMode()) {
+            <button
+              type="button"
+              class="inline-flex h-10 items-center justify-center rounded-xl border px-3 text-xs font-semibold transition-colors"
+              [ngClass]="
+                chat.perAgentModelsMode()
+                  ? 'border-violet-500 text-violet-700 bg-violet-50 dark:bg-violet-600/15 dark:text-violet-300'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-500'
+              "
+              (click)="togglePerAgent()"
+              [title]="
+                chat.perAgentModelsMode()
+                  ? 'Per-agent models ON — each role uses its configured model'
+                  : 'Per-agent models OFF — all roles use the selected model'
+              "
+            >
+              🧩 Per-agent
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-10 items-center justify-center rounded-xl border px-3 text-xs font-semibold transition-colors"
+              [ngClass]="
+                chat.continuationMode()
+                  ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:bg-indigo-600/15 dark:text-indigo-300'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-500'
+              "
+              (click)="toggleContinuation()"
+              [title]="
+                chat.continuationMode()
+                  ? 'Continuation ON — modify existing files first, avoid duplicates'
+                  : 'Continuation OFF — auto-detect existing project from output path'
+              "
+            >
+              🧱 Continue
+            </button>
+          }
+
+          <button
+            type="button"
+            class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-base text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            (click)="picker.click()"
+            title="Attach files"
+            [disabled]="chat.streaming()"
+          >
+            📎
+          </button>
+          <input
+            #picker
+            type="file"
+            multiple
+            class="hidden"
+            (change)="onPick($event)"
+          />
+
+          <div class="ml-auto">
+            @if (chat.streaming()) {
+              <button
+                type="button"
+                class="btn-danger !rounded-xl !h-10 !py-0"
+                (click)="stop()"
+                title="Stop generating"
+              >
+                ■ Stop
+              </button>
+            } @else {
+              <button
+                type="submit"
+                class="btn-primary !rounded-xl !h-10 !py-0"
+                [disabled]="!canSend()"
+                title="Send"
+              >
+                ↑ Send
+              </button>
+            }
+          </div>
+        </div>
       </div>
 
       <p class="mt-1 px-2 text-[11px] text-slate-400">
