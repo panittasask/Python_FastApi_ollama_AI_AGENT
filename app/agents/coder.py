@@ -43,6 +43,7 @@ class CodeGenerationAgent(BaseAgent):
         plan: ProjectPlan,
         existing_files: list[str],
         extra_context: Optional[str] = None,
+        continuation_block: Optional[str] = None,
     ) -> CodeGenerationResult:
         deps_block = "\n".join(f"- {d}" for d in plan.dependencies) or "(none)"
         files_block = "\n".join(f"- {f}" for f in existing_files[:60]) or "(none yet)"
@@ -57,6 +58,8 @@ class CodeGenerationAgent(BaseAgent):
             f"DESCRIPTION: {task.description}\n"
             f"TARGET FILE: {task.file_path or '(decide based on task)'}\n"
         )
+        if continuation_block:
+            prompt = continuation_block + "\n---\n" + prompt
         if extra_context:
             prompt += f"\nADDITIONAL CONTEXT:\n{extra_context}\n"
         prompt += (

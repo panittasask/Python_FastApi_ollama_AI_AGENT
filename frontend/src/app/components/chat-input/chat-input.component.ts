@@ -197,6 +197,23 @@ function isLikelyText(name: string): boolean {
           >
             🧩 Per-agent
           </button>
+          <button
+            type="button"
+            class="rounded-xl border px-2 py-2 text-xs font-semibold transition-colors"
+            [ngClass]="
+              chat.continuationMode()
+                ? 'border-indigo-500 text-indigo-700 bg-indigo-50 dark:bg-indigo-600/15 dark:text-indigo-300'
+                : 'border-slate-200 dark:border-slate-700 text-slate-500'
+            "
+            (click)="toggleContinuation()"
+            [title]="
+              chat.continuationMode()
+                ? 'Continuation ON — modify existing files first, avoid duplicates'
+                : 'Continuation OFF — auto-detect existing project from output path'
+            "
+          >
+            🧱 Continue
+          </button>
         }
 
         <button
@@ -321,6 +338,10 @@ export class ChatInputComponent implements AfterViewInit {
   }
   protected togglePerAgent(): void {
     this.chat.togglePerAgentModelsMode();
+  }
+
+  protected toggleContinuation(): void {
+    this.chat.toggleContinuationMode();
   }
 
   protected formatSize(n: number): string {

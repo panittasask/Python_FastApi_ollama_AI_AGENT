@@ -29,6 +29,15 @@ from app.services.job_registry import Job
 from app.services.ollama_client import OllamaClient
 from app.services.plan_manager import PlanManager
 from app.services.test_runner import TestRunner
+from app.services.continuation import (
+    append_changelog,
+    build_continuation_block,
+    classify_writes,
+    is_existing_project,
+    load_files_content,
+    load_memory_excerpt,
+    pick_relevant_files,
+)
 
 
 def _slug(name: str) -> str:
@@ -106,6 +115,7 @@ class Orchestrator:
         auto_test: Optional[bool] = None,
         max_loops: Optional[int] = None,
         job: Optional[Job] = None,
+        continuation_mode: Optional[bool] = None,
     ) -> GenerateResponse:
         name = _slug(project_name)
         out_dir = Path(output_path) if output_path else self.settings.output_dir / name
@@ -113,6 +123,16 @@ class Orchestrator:
         pm = PlanManager(out_dir)
         auto_test = self.settings.enable_auto_test if auto_test is None else auto_test
         max_loops = max_loops or self.settings.max_generation_loops
+
+        # ---------- continuation-mode detection ----------
+        if continuation_mode is None:
+            continuation_mode = is_existing_project(out_dir)
+        memory_excerpt = load_memory_excerpt(out_dir) if continuation_mode else ""
+        if continuation_mode and job:
+            job.log(
+                f"continuation mode ON — editing existing project at {out_dir} "
+                f"({'memory loaded' if memory_excerpt else 'no .agent memory'})"
+            )
 
         async with OllamaClient() as client:
             refiner = PromptRefinerAgent(client, self.config)
@@ -145,19 +165,51 @@ class Orchestrator:
                 _emit(job, "coder", coder.params.model, "start",
                       f"[{task.id}] {task.title}")
                 try:
+                    # In continuation mode, pull the most relevant existing
+                    # files (with content) so the coder can MODIFY them
+                    # instead of recreating duplicates.
+                    cont_block = None
+                    if continuation_mode:
+                        picked = pick_relevant_files(
+                            fm,
+                            task_text=f"{task.title}\n{task.description}",
+                            target_path=task.file_path,
+                        )
+                        content_map = await load_files_content(fm, picked)
+                        cont_block = build_continuation_block(
+                            files=content_map,
+                            memory_excerpt=memory_excerpt,
+                        )
+                        if job and picked:
+                            job.log(
+                                f"[{task.id}] continuation: showing "
+                                f"{len(picked)} existing file(s) to coder"
+                            )
                     res = await coder.generate_file(
                         task=task,
                         plan=plan,
                         existing_files=fm.list_files(),
+                        continuation_block=cont_block,
                     )
                     if not res.files:
                         raise RuntimeError("coder returned no files")
+                    writes = [(f.path, f.content) for f in res.files]
+                    created, modified = classify_writes(fm.base_dir, writes)
                     for f in res.files:
                         await fm.write_file(f.path, f.content)
+                    if continuation_mode:
+                        append_changelog(
+                            fm.base_dir, created, modified,
+                            reason=f"[{task.id}] {task.title}",
+                        )
                     task.status = TaskStatus.COMPLETED
-                    task.notes = f"generated {len(res.files)} file(s)"
+                    task.notes = (
+                        f"modified {len(modified)}, created {len(created)} file(s)"
+                        if continuation_mode
+                        else f"generated {len(res.files)} file(s)"
+                    )
                     _emit(job, "coder", coder.params.model, "end",
-                          f"[{task.id}] wrote {len(res.files)} file(s)")
+                          f"[{task.id}] {task.notes}")
                 except Exception as e:
                     logger.exception(f"Task {task.id} failed")
                     task.status = TaskStatus.FAILED

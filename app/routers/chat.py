@@ -25,7 +25,10 @@ from app.models.schemas import ModelConfig
 from app.services.job_registry import Job
 from app.services.ollama_client import OllamaClient
 from app.services.orchestrator import Orchestrator
-from app.services.web_search import format_results_block, search as web_search_async
+from app.services.web_search import (
+    fetch_page_text,
+    search as web_search_async,
+)
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -79,6 +82,14 @@ class ChatRequest(BaseModel):
     # (planner_model, coder_model, fix_model, refiner_model from settings)
     # instead of forcing them all to the user's selected model.
     per_agent_models: bool = Field(default=False, alias="perAgentModels")
+    # Optional per-role overrides (only honored when per_agent_models=True).
+    refiner_model: Optional[str] = Field(default=None, alias="refinerModel")
+    planner_model: Optional[str] = Field(default=None, alias="plannerModel")
+    coder_model: Optional[str] = Field(default=None, alias="coderModel")
+    fix_model: Optional[str] = Field(default=None, alias="fixModel")
+    # NEW: prefer modifying existing files instead of creating new ones.
+    # None = auto-detect from output_path. True/False = explicit override.
+    continuation_mode: Optional[bool] = Field(default=None, alias="continuationMode")
 
     class Config:
         populate_by_name = True
@@ -126,6 +137,43 @@ async def search_endpoint(q: str, n: int = 5) -> dict:
     return {"query": q, "results": [r.to_dict() for r in results]}
 
 
+async def _run_web_search(query: str) -> tuple[str, list[dict]]:
+    """Search DuckDuckGo and pull text from the top results so the LLM has
+    real grounding (not just snippets). Returns (markdown_block, results_dicts).
+    """
+    q = (query or "").strip()
+    if not q:
+        return "", []
+    try:
+        results = await web_search_async(q, max_results=5)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"web search failed: {e}")
+        return "", []
+    results_dicts = [r.to_dict() for r in results]
+    if not results:
+        return "", []
+
+    # Fetch full-text excerpts from the top 2 results in parallel.
+    import asyncio as _asyncio
+    pages = await _asyncio.gather(
+        *(fetch_page_text(r.url, max_chars=2500) for r in results[:2]),
+        return_exceptions=True,
+    )
+
+    lines = ["### Web search results", ""]
+    for i, r in enumerate(results, 1):
+        lines.append(f"[{i}] **{r.title}** — {r.url}")
+        if r.snippet:
+            lines.append(f"    {r.snippet}")
+    lines.append("")
+    for i, page in enumerate(pages, 1):
+        if isinstance(page, str) and page:
+            lines.append(f"#### Excerpt from [{i}] {results[i-1].url}")
+            lines.append(page)
+            lines.append("")
+    return "\n".join(lines), results_dicts
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest):
     """Send a chat message. If stream=True, returns SSE; else JSON."""
@@ -149,20 +197,16 @@ async def chat(req: ChatRequest):
     web_results: list[dict] = []
     if req.web_search:
         q = (req.web_search_query or req.message or "").strip()
-        try:
-            results = await web_search_async(q, max_results=5)
-            web_results = [r.to_dict() for r in results]
-            web_block = format_results_block(results)
-        except Exception as e:  # pragma: no cover
-            logger.warning(f"web search failed: {e}")
+        web_block, web_results = await _run_web_search(q)
 
     # ---------- CHAT MODE: plain conversational reply ----------
     user_content = _build_user_content(req.message, req.attachments)
     if web_block:
         user_content = (
             web_block
-            + "\n---\nUse the web results above as up-to-date grounding. "
-            + "Cite the source numbers like [1], [2] when relevant.\n\n"
+            + "\n---\nUse the web results and excerpts above as up-to-date "
+            + "grounding. Quote concrete facts (prices, dates, numbers) "
+            + "directly from the excerpts. Cite sources like [1], [2].\n\n"
             + user_content
         )
     messages: list[dict[str, str]] = []
@@ -399,29 +443,33 @@ async def _agent_stream(req: ChatRequest, model: str, conv_id: str) -> Streaming
     web_results: list[dict] = []
     if req.web_search:
         q = (req.web_search_query or req.message or "").strip()
-        try:
-            results = await web_search_async(q, max_results=5)
-            web_results = [r.to_dict() for r in results]
-            block = format_results_block(results)
-            if block:
-                effective_prompt = (
-                    block
-                    + "\n---\nUse the web results above as up-to-date grounding.\n\n"
-                    + effective_prompt
-                )
-        except Exception as e:  # pragma: no cover
-            logger.warning(f"web search failed: {e}")
+        block, web_results = await _run_web_search(q)
+        if block:
+            effective_prompt = (
+                block
+                + "\n---\nUse the web results and excerpts above as up-to-date "
+                + "grounding. Quote concrete facts directly from the excerpts.\n\n"
+                + effective_prompt
+            )
 
     # Build a ModelConfig. By default every agent uses the user-selected model
     # so the bubble shows a single consistent model. If `per_agent_models` is
     # set, leave per-role fields blank so each agent picks its configured
     # default (planner_model, coder_model, fix_model, refiner_model).
     per_agent = bool(getattr(req, "per_agent_models", False))
+    settings_defaults = get_settings()
+    if per_agent:
+        refiner_m = req.refiner_model or settings_defaults.refiner_model
+        planner_m = req.planner_model or settings_defaults.planner_model
+        coder_m = req.coder_model or settings_defaults.coder_model
+        fix_m = req.fix_model or settings_defaults.fix_model
+    else:
+        refiner_m = planner_m = coder_m = fix_m = model
     cfg = ModelConfig(
-        refiner_model=None if per_agent else model,
-        coder_model=None if per_agent else model,
-        planner_model=None if per_agent else model,
-        fix_model=None if per_agent else model,
+        refiner_model=refiner_m,
+        coder_model=coder_m,
+        planner_model=planner_m,
+        fix_model=fix_m,
         temperature=req.temperature,
         top_p=req.top_p,
         num_ctx=req.num_ctx,
@@ -446,6 +494,7 @@ async def _agent_stream(req: ChatRequest, model: str, conv_id: str) -> Streaming
                     auto_test=req.auto_test,
                     max_loops=req.max_loops,
                     job=job,
+                    continuation_mode=req.continuation_mode,
                 )
             else:
                 result = await orch.generate_simple(

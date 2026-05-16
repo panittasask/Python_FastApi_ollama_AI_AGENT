@@ -13,6 +13,7 @@ import { environment } from "@env/environment";
 import { SettingsService } from "../../services/settings.service";
 import { ThemeService, ThemeMode } from "../../services/theme.service";
 import { ChatService } from "../../services/chat.service";
+import { ApiService } from "../../services/api.service";
 
 @Component({
   selector: "app-settings-dialog",
@@ -188,6 +189,80 @@ import { ChatService } from "../../services/chat.service";
             >
             <input class="input" type="text" [(ngModel)]="form.outputPath" />
           </div>
+
+          <div
+            class="rounded-xl border border-slate-200 dark:border-slate-700 p-3"
+          >
+            <div class="mb-2 flex items-center justify-between">
+              <h3
+                class="text-xs font-semibold uppercase tracking-wider text-slate-500"
+              >
+                Per-agent models
+              </h3>
+              <span class="text-[11px] text-slate-400"
+                >Used when 🧩 Per-agent is on</span
+              >
+            </div>
+            <p class="mb-2 text-[11px] text-slate-500">
+              Each role can use a different model. Leave blank to fall back to
+              the backend default.
+            </p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="mb-1 block text-[11px] text-slate-500"
+                  >✨ Refiner</label
+                >
+                <input
+                  class="input font-mono text-xs"
+                  type="text"
+                  list="agentModelsList"
+                  [(ngModel)]="form.refinerModel"
+                  placeholder="qwen2.5:7b"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-[11px] text-slate-500"
+                  >🧠 Planner</label
+                >
+                <input
+                  class="input font-mono text-xs"
+                  type="text"
+                  list="agentModelsList"
+                  [(ngModel)]="form.plannerModel"
+                  placeholder="qwen2.5:7b"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-[11px] text-slate-500"
+                  >💻 Coder</label
+                >
+                <input
+                  class="input font-mono text-xs"
+                  type="text"
+                  list="agentModelsList"
+                  [(ngModel)]="form.coderModel"
+                  placeholder="deepseek-coder:6.7b"
+                />
+              </div>
+              <div>
+                <label class="mb-1 block text-[11px] text-slate-500"
+                  >🛠️ Fixer</label
+                >
+                <input
+                  class="input font-mono text-xs"
+                  type="text"
+                  list="agentModelsList"
+                  [(ngModel)]="form.fixModel"
+                  placeholder="codellama:13b"
+                />
+              </div>
+            </div>
+            <datalist id="agentModelsList">
+              @for (m of availableModels(); track m) {
+                <option [value]="m"></option>
+              }
+            </datalist>
+          </div>
         </div>
 
         <div class="mt-5 flex items-center justify-between gap-2">
@@ -221,16 +296,28 @@ export class SettingsDialogComponent {
   protected theme = inject(ThemeService);
   private settings = inject(SettingsService);
   private chatSvc = inject(ChatService);
+  private api = inject(ApiService);
 
   protected themes: ThemeMode[] = ["light", "dark", "system"];
   protected saved = signal(false);
   protected testing = signal(false);
   protected testResult = signal<{ ok: boolean; msg: string } | null>(null);
   protected envBase = environment.apiBaseUrl || "";
+  protected availableModels = signal<string[]>([]);
 
   protected form = { ...this.settings.settings() };
 
   protected readonly _ = computed(() => this.settings.settings()); // keep DI tree alive
+
+  constructor() {
+    this.api.listModels().subscribe({
+      next: (list) =>
+        this.availableModels.set(
+          (list || []).map((m) => m.name).filter((n): n is string => !!n),
+        ),
+      error: () => this.availableModels.set([]),
+    });
+  }
 
   save(): void {
     this.settings.update({

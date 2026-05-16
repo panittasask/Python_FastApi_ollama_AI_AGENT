@@ -35,6 +35,9 @@ export class ChatService {
   private readonly _perAgentModelsMode = signal<boolean>(
     this.loadBool("agent_ui.perAgentModels"),
   );
+  private readonly _continuationMode = signal<boolean>(
+    this.loadBool("agent_ui.continuationMode"),
+  );
   private _abort: AbortController | null = null;
 
   readonly conversations = computed(() =>
@@ -50,6 +53,7 @@ export class ChatService {
   readonly agentMode = computed(() => this._agentMode());
   readonly webSearchMode = computed(() => this._webSearchMode());
   readonly perAgentModelsMode = computed(() => this._perAgentModelsMode());
+  readonly continuationMode = computed(() => this._continuationMode());
 
   setAgentMode(on: boolean): void {
     this._agentMode.set(on);
@@ -92,6 +96,18 @@ export class ChatService {
   }
   togglePerAgentModelsMode(): void {
     this.setPerAgentModelsMode(!this._perAgentModelsMode());
+  }
+
+  setContinuationMode(on: boolean): void {
+    this._continuationMode.set(on);
+    try {
+      localStorage.setItem("agent_ui.continuationMode", on ? "1" : "0");
+    } catch {
+      /* noop */
+    }
+  }
+  toggleContinuationMode(): void {
+    this.setContinuationMode(!this._continuationMode());
   }
 
   private loadBool(key: string): boolean {
@@ -281,6 +297,11 @@ export class ChatService {
       outputPath: settings.outputPath || undefined,
       webSearch: this._webSearchMode(),
       perAgentModels: this._perAgentModelsMode(),
+      continuationMode: this._continuationMode(),
+      refinerModel: settings.refinerModel || undefined,
+      plannerModel: settings.plannerModel || undefined,
+      coderModel: settings.coderModel || undefined,
+      fixModel: settings.fixModel || undefined,
       signal: this._abort.signal,
       onEvent: (ev: ChatStreamEvent) =>
         this.handleEvent(convId, assistantMsg.id, ev),

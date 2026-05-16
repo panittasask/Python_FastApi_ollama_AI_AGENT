@@ -20,6 +20,11 @@ export interface StreamChatOptions {
   webSearch?: boolean;
   webSearchQuery?: string;
   perAgentModels?: boolean;
+  refinerModel?: string;
+  plannerModel?: string;
+  coderModel?: string;
+  fixModel?: string;
+  continuationMode?: boolean;
   signal?: AbortSignal;
   onEvent: (ev: ChatStreamEvent) => void;
 }
@@ -59,6 +64,14 @@ export class StreamingService {
       web_search: !!opts.webSearch,
       web_search_query: opts.webSearchQuery,
       per_agent_models: !!opts.perAgentModels,
+      refiner_model: opts.refinerModel || undefined,
+      planner_model: opts.plannerModel || undefined,
+      coder_model: opts.coderModel || undefined,
+      fix_model: opts.fixModel || undefined,
+      continuation_mode:
+        typeof opts.continuationMode === "boolean"
+          ? opts.continuationMode
+          : undefined,
       stream: true,
     };
 

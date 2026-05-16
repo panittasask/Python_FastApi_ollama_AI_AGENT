@@ -20,7 +20,8 @@ import httpx
 from app.core.logging_config import logger
 
 
-DDG_HTML_URL = "https://duckduckgo.com/html/"
+DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "

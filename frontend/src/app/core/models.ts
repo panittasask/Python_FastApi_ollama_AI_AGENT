@@ -68,6 +68,11 @@ export interface ChatSettings {
   streaming: boolean;
   outputPath: string;
   systemPrompt: string;
+  // Per-agent model overrides (used when "Per-agent" toggle is on).
+  refinerModel: string;
+  plannerModel: string;
+  coderModel: string;
+  fixModel: string;
 }
 
 export const DEFAULT_SETTINGS: ChatSettings = {
@@ -80,6 +85,10 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   streaming: true,
   outputPath: "./generated_projects",
   systemPrompt: "",
+  refinerModel: "",
+  plannerModel: "",
+  coderModel: "",
+  fixModel: "",
 };
 
 export interface ChatStreamEvent {
